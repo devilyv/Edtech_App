@@ -1,0 +1,92 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+class ApplicationTrackingPage extends StatefulWidget {
+  @override
+  _ApplicationTrackingPageState createState() => _ApplicationTrackingPageState();
+}
+
+class _ApplicationTrackingPageState extends State<ApplicationTrackingPage> {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  String? userRole;
+  String? userId;
+
+  @override
+  void initState() {
+    super.initState();
+    _getUserRole();
+  }
+
+  void _getUserRole() async {
+    User? user = _auth.currentUser;
+    if (user == null) return;
+
+    DocumentSnapshot userDoc = await _firestore.collection('users').doc(user.uid).get();
+    if (userDoc.exists) {
+      setState(() {
+        userRole = userDoc['role']; // Fetch user role dynamically
+        userId = user.uid;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (userRole == null || userId == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text("Application Tracking")),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: Text("Application Tracking")),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _firestore
+            .collection('applications')
+            .where(userRole == "student" ? 'studentId' : 'agentId', isEqualTo: userId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return Center(child: Text("No applications found."));
+          }
+
+          var applications = snapshot.data!.docs;
+
+          return ListView.builder(
+            itemCount: applications.length,
+            itemBuilder: (context, index) {
+              var app = applications[index];
+              return Card(
+                margin: EdgeInsets.all(10),
+                child: ListTile(
+                  title: Text("Application ID: ${app.id}"),
+                  subtitle: Text("Status: ${app['status']}"),
+                  trailing: userRole == "agent"
+                      ? IconButton(
+                          icon: Icon(Icons.update),
+                          onPressed: () => _updateStatus(app.id),
+                        )
+                      : null,
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _updateStatus(String appId) {
+    _firestore.collection('applications').doc(appId).update({'status': 'Accepted'}).then((_) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Status updated to Accepted")));
+    }).catchError((error) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error updating status: $error")));
+    });
+  }
+}
